@@ -14,7 +14,7 @@ from roster_engine import (
     validate_configuration,
     validate_roster,
 )
-st.set_page_config(page_title="RosterFlow | Workforce planning", page_icon="◷", layout="wide")
+st.set_page_config(page_title="Smart Roster Management System | RosterFlow", page_icon="◷", layout="wide")
 
 st.markdown("""
 <style>
@@ -120,7 +120,7 @@ def persist_and_rerun():
 page = st.sidebar.radio("WORKSPACE", ["Overview", "Roster", "People & operations", "Coverage & conflicts"], label_visibility="visible")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**ROSTERFLOW**  ·  Workforce planning")
-st.sidebar.caption("Assessment prototype · deterministic scheduling")
+st.sidebar.caption("Smart Roster Management System · Internship Assessment Prototype")
 if st.session_state.roster_history:
     st.sidebar.markdown("---")
     st.sidebar.markdown("**RECENT ROSTERS**")

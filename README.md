@@ -2,6 +2,10 @@
 
 RosterFlow is a workforce planning assessment prototype for Datastraw Technologies. It models employees, pods, brands, processes, lane-specific coverage rules, and monthly availability, then generates and validates a roster.
 
+**Live application:** [Smart Roster Management System](https://datastraw-roster-management-mhwedc7vwxkcvfxgsxmjsw.streamlit.app/)
+
+**GitHub repository:** [Datastraw roster management](https://github.com/kamblerohit0508-web/Datastraw-roster-management)
+
 ## Problem
 
 Operations teams need to meet different coverage targets across brands and processes while respecting employee assignments, weekly offs, leave, comp-offs, holidays, and workload limits. This app makes those constraints visible, reports impossible coverage, and lets an operations manager respond when availability changes.
@@ -31,7 +35,9 @@ Operations teams need to meet different coverage targets across brands and proce
 | Tests | `unittest` cases in `tests/` |
 | Dependencies | `requirements.txt` |
 
-No login system, API key, or external service is required. SQLite is appropriate for local assessment use. The local database is excluded from Git. For public deployment, use persistent storage supported by the host or migrate to a managed database; a local SQLite file on ephemeral hosting is not durable.
+No login system, API key, or external service is required. The local SQLite database is excluded from Git.
+
+**Hosted persistence limitation:** The deployed prototype uses SQLite for local persistence. Streamlit Community Cloud does not guarantee persistence of local file storage across all restarts/redeployments, so the hosted SQLite database should not be considered production-grade durable storage. For production deployment, the persistence layer should be migrated to a hosted database such as PostgreSQL.
 
 ## Data model
 
@@ -82,11 +88,23 @@ Open the local URL printed by Streamlit (normally `http://localhost:8501`). To r
 & ".\.venv-x64\Scripts\python.exe" -m unittest discover -s tests -v
 ```
 
-The app does not read environment variables. `.env.example` documents that no keys are required; do not add secrets to the repository.
+The app does not currently read environment variables and needs no API keys. `.env.example` documents this. Do not add secrets to the repository.
 
 ## Deployment notes
 
-Start the app with `python -m streamlit run app.py`; install dependencies from `requirements.txt`. No API keys or environment variables are required for the assessment prototype. SQLite stores state in `data/rosterflow.db`, and `.gitignore` excludes the database directory and `*.db` files. For a host with an ephemeral filesystem, configure a persistent volume or replace local SQLite with a managed database before relying on saved state. The app has no authentication or role-based access, so use fictional assessment data for a public demo and do not treat this prototype as a production workforce system.
+### Streamlit Community Cloud
+
+The app is deployed at [datastraw-roster-management-mhwedc7vwxkcvfxgsxmjsw.streamlit.app](https://datastraw-roster-management-mhwedc7vwxkcvfxgsxmjsw.streamlit.app/). The GitHub repository root contains `app.py`, `requirements.txt`, and `.streamlit/config.toml`. To create or redeploy it:
+
+1. Sign in at [Streamlit Community Cloud](https://share.streamlit.io/) with the GitHub account that can administer the repository.
+2. Choose **Create app**, then select `kamblerohit0508-web/Datastraw-roster-management`.
+3. Select branch `feature/persistent-storage` and entrypoint `app.py`.
+4. In **Advanced settings**, select Python 3.13. No secrets or environment variables need to be entered.
+5. Deploy and review the app logs if startup reports an error.
+
+The public app was smoke-tested: the dashboard, roster generation, employee-by-day grid, coverage/conflict view, manual schedule edit and undo, Review/Publish flow, roster history, and saved state after a page reload were checked. A page reload does not verify persistence across a hosting restart or redeployment. Community Cloud does **not guarantee persistence of local file storage**; the hosted SQLite database is prototype storage, not production-grade durable storage. If production-grade persistence is required, migrate the storage layer to a hosted database such as PostgreSQL. There is no authentication or role-based access, so keep the public demo limited to fictional sample data.
+
+No additional Python or system packages are required. The app has no static assets, absolute local paths, or platform-specific paths in runtime code. `.streamlit/config.toml` contains appearance settings only.
 
 ### Demo workflow
 
@@ -97,6 +115,35 @@ Start the app with `python -m streamlit run app.py`; install dependencies from `
 5. Make a direct employee/day change; inspect the validation result and undo it.
 6. Restart Streamlit and confirm the saved workspace and roster are restored.
 7. Validate and move the roster to Review, then publish it after mandatory conflicts are resolved. Inspect version history.
+
+## Submission checklist
+
+- [x] Public app URL deployed and documented
+- [x] GitHub repository exists
+- [x] README includes setup and deployment steps
+- [x] `.env.example` and `.gitignore` reviewed
+- [x] No secrets or local database are tracked
+- [x] Tests pass locally (19/19)
+- [x] Public app smoke-tested for the core workflow
+- [x] Hosted SQLite persistence limitation documented; restart/redeployment durability is not verified
+- [ ] 3–5 minute demo recorded
+- [ ] LinkedIn URL ready
+- [ ] Submission email prepared
+
+## 5-minute demo script
+
+| Time | Demonstration |
+|---|---|
+| 0:00–0:20 | Introduce the Smart Roster Management System and its deterministic scheduling approach. |
+| 0:20–0:45 | Show dashboard counts: 30 employees, 9 brands, 5 processes, 4 pods. |
+| 0:45–1:20 | Select a month and generate the roster. |
+| 1:20–1:50 | Show the employee-by-day grid and status labels. |
+| 1:50–2:20 | Show brand/process coverage and staffing counts. |
+| 2:20–3:00 | Mark a scheduled employee unavailable and show the resulting gap, reason, and severity. |
+| 3:00–3:30 | Assign a suggested backup and revalidate coverage. |
+| 3:30–4:00 | Make a direct schedule change, show validation, then undo it. |
+| 4:00–4:35 | Move the roster through Review to Published and show its history. |
+| 4:35–5:00 | Explain the rule-based constraints, local persistence, and hosted SQLite limitation. |
 
 ## Assessment questions
 
@@ -116,7 +163,7 @@ Start the app with `python -m streamlit run app.py`; install dependencies from `
 - Weekly offs repeat on one weekday; the cap uses ISO weeks.
 - Pod removal, process renaming, and complete audit/restore history are not implemented.
 - Direct schedule edits support daily statuses and validation; they do not model shift times, split shifts, or working hours.
-- Export is CSV only. Deployment has not been configured or verified in this repository.
+- Export is CSV only. The public app is deployed; Community Cloud does not guarantee that hosted SQLite files persist across restarts or redeployments.
 - All directory data is synthetic and should not be represented as Datastraw employee or client data.
 
 See [ASSESSMENT_AUDIT.md](ASSESSMENT_AUDIT.md) for requirement-by-requirement status and evidence.
