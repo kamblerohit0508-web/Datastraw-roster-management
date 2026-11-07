@@ -18,25 +18,30 @@ Audit performed against the pasted assessment brief and the project currently in
 | Monthly roster generation | PASS | Standard, Balanced, and Smart modes in `build_roster()` | Add comparison/undo for alternate generated rosters. |
 | Scheduling correctness and impossible coverage | PASS | Deterministic augmenting-path matcher; 13 unit tests include impossible staffing and constraint cases | Validate larger and more varied real-world rule sets. |
 | Conflict detection and coverage validation | PASS | `validate_roster()` checks overlaps, weekly caps, availability, eligibility, operating days, and coverage | Add issue severity and richer cause details for every conflict type. |
-| Manual roster editing | PARTIAL | Manual assignee replacement and backup assignment revalidate the roster | Add direct day/status editing and undo for manual overrides. |
+| Manual roster editing | PASS | Assignee replacement plus direct employee/day status edits revalidate immediately; latest direct status change can be undone | Status changes are daily; shift hours and time windows are not modelled. |
 | Availability changes after generation | PASS | Browser demo: marked Meera Kapoor unavailable on 2027-03-01; app showed the 1/2 gap and Kiara Mehta as backup; Conflicts then showed no conflicts after assignment | Improve before/after messaging and show the exact resolved coverage count after every action. |
-| Company/pod/brand/process/employee roster views | PASS | Roster tabs in `app.py` | Add a compact employee-by-day grid; current views are tabular. |
+| Company/pod/brand/process/employee roster views | PASS | Existing views remain; monthly employee-by-day grid added to roster screen | Wide months require horizontal scrolling in the data grid. |
 | Sample data complexity | PASS | 9 brands, 21 lanes, seven single-person minimum brands, one two-person lane, one three-person lane, shared cross-trained reserve pool | Tune synthetic staffing ratios to match any clarified client scenario. |
 | Export | PASS | Company roster CSV download | Excel/PDF export is optional and not implemented. |
 | Professional operations UI | PARTIAL | Neutral dashboard, blue primary accent, coverage heatmap, conflict/recovery views | Improve desktop density, smaller-screen layout, keyboard accessibility, and status color legend. |
 | Generation progress | PARTIAL | Honest Streamlit spinner during the quick deterministic calculation | No staged progress is shown because the calculation is effectively instantaneous. |
-| Persistent storage and deployment | PARTIAL | No hardcoded local data path or secret is required; `requirements.txt` is pinned | Session data disappears on restart; add an external persistent database, auth, authorization, migrations, and deployment configuration. |
+| Persistent storage and deployment | PARTIAL | SQLite workspace snapshot; connection closes cleanly; tests reload it in a separate process; separate Streamlit process on port 8504 loaded the saved roster, 30 employees, 100% coverage, version history, and change history | Local SQLite is not suitable for ephemeral or concurrent production deployment. Add hosted persistence, auth, migrations, and deployment configuration. |
+| Draft/review/publish workflow | PASS | Roster screen shows DRAFT/REVIEW/PUBLISHED, validates before review, and disables publishing while mandatory conflicts remain | No separate reviewer identity or approval record. |
+| Roster history/versioning | PASS | History entries record version, timestamp, month, state, source, summary, coverage, and assignment count; stored in SQLite | History is metadata snapshots, not a full diff of every roster row. |
+| Conflict severity/details | PASS | Validation screen displays severity, date/week, brand/process, required/available/assigned/shortage, employee, cause, and backup/resolution text | Severity mapping is rule-based; richer per-rule severity configuration is not available. |
 | AI scheduling | PARTIAL | No AI is used; core scheduling is deterministic | AI explanations are optional and should only be added after core persistence and audit features. |
 | README and assessment answers | PASS | `README.md` covers overview, model, algorithm, validation, setup, limits, and all eight questions | Add screenshot and live deployment/repository links when available. |
 | End-to-end demo | PASS | Browser opened dashboard, generated March 2027, showed heatmap, recorded unavailability, showed gap/backup, and validated recovery | Run the same walkthrough once on the final presentation-sized desktop viewport. |
 
 ## Release assessment
 
-**Assessment readiness: NEEDS WORK for production use; core assessment demo is functional.** The schedule engine and recovery flow are covered by 13 passing tests and the March 2027 browser walkthrough. The main submission and operational gaps are persistent storage, authentication, publish/approval controls, audit/undo, a public deployment, repository publication, and a recorded walkthrough. The data currently consists only of fictional sample records.
+**Assessment readiness: core assessment workflow is functional; production deployment still needs work.** The scheduler and recovery flow remain covered by the engine suite. SQLite persistence, draft/review/publish, version history, daily status editing/undo, conflict details, and a monthly employee grid are implemented. Persistence was checked with tests and a separate Streamlit process restart. Authentication, concurrent-user storage, deployment configuration, full roster-diff history, and a recorded walkthrough remain outstanding. Data is fictional sample data.
 
 ## Verification performed
 
-- `python -m unittest discover -s tests -v`: 14 tests passed under the project's Python 3.13 x64 virtual environment.
-- Parsed `app.py`, `roster_engine.py`, and the test module with Python's AST parser.
-- Opened the app at `http://127.0.0.1:8502`, generated the March 2027 roster, confirmed zero starting coverage gaps, and exercised the unavailable employee → backup → revalidation path.
+- `.venv-x64\Scripts\python.exe -m unittest discover -s tests -v`: 19 tests passed after these changes.
+- Parsed changed Python modules with Python's AST parser.
+- In the running app at `http://127.0.0.1:8502`, generated a November 2026 roster, confirmed zero coverage gaps, opened the employee-by-day grid, moved the roster from Draft to Review to Published, applied a daily status change, observed the validation message, and used Undo.
+- Restarted the app in a separate Streamlit process on port 8504 and confirmed it loaded the saved roster, 30 employees, 100% coverage, and saved history entries. The separate Python process also confirmed the saved DRAFT state after the manual edit was undone.
+- Existing unavailable employee → backup → revalidation behavior remains covered by engine tests and prior browser walkthrough.
 - Checked that employee, brand/process, and pod management screens render in the browser.

@@ -365,6 +365,7 @@ def validate_roster(data, roster):
                 reason = (", ".join(unavailable_people) + " unavailable") if unavailable_people else "Not enough eligible staff are available for this lane."
                 issues.append({"type": "Coverage gap", "date": day.isoformat(), "brand": brand["name"],
                                "process": req["process"], "required": req["required"], "assigned": assigned,
+                               "available": assigned + len(candidates), "affected_employee": ", ".join(unavailable_people),
                                "shortage": req["required"] - assigned, "reason": reason,
                                "backup_candidates": candidates[:5]})
     # Preferences are deliberately reported as warnings and never invalidate coverage.

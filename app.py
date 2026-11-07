@@ -1,11 +1,19 @@
 import calendar
+from copy import deepcopy
 from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
 
-from roster_engine import build_roster, make_sample_data, roster_summary, validate_configuration, validate_roster
-
+from storage import load_workspace, save_workspace
+from roster_workflow import can_publish, classify_issues, employee_month_grid, make_history_entry, set_roster_status, undo_roster_change
+from roster_engine import (
+    build_roster,
+    make_sample_data,
+    roster_summary,
+    validate_configuration,
+    validate_roster,
+)
 st.set_page_config(page_title="RosterFlow | Workforce planning", page_icon="◷", layout="wide")
 
 st.markdown("""
@@ -26,22 +34,89 @@ div[data-testid="stMetricValue"] {font-family:'Manrope',sans-serif;font-size:26p
 .callout {background:#fff;border:1px solid var(--line);border-left:4px solid #d89438;border-radius:10px;padding:13px 16px;margin:8px 0;color:#49564f;font-size:13px;}
 .ok {border-left-color:#25835f}.bad {border-left-color:#c84e4e}
 .stButton>button[kind="primary"] {background:#315bd6;border-color:#315bd6;border-radius:9px;font-weight:700;}
+/* Improve text contrast across the app */
+:root {
+    --ink: #17231f;
+    --muted: #52615a;
+}
+
+.stApp {
+    color: var(--ink);
+}
+
+/* Sidebar navigation and labels */
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] {
+    color: #26342e !important;
+}
+
+/* Captions and helper text */
+[data-testid="stCaptionContainer"],
+.stCaption,
+small {
+    color: #52615a !important;
+}
+
+/* Form labels and tab names */
+.stApp label,
+.stTabs [role="tab"] {
+    color: #26342e !important;
+}
+
+/* Keep text on the blue hero panel readable */
+.hero p {
+    color: #e6f1ed !important;
+}
+
+.eyebrow {
+    color: #e0e8ff !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
 def init_state():
     if "workspace_data" not in st.session_state:
-        st.session_state.workspace_data = make_sample_data()
+        saved = load_workspace()
+
+        if saved:
+            st.session_state.workspace_data = saved["workspace_data"]
+            st.session_state.roster = saved.get("roster")
+            st.session_state.roster_month = saved.get("roster_month")
+            st.session_state.roster_history = saved.get("roster_history", [])
+            st.session_state.change_history = saved.get("change_history", [])
+            st.session_state.roster_state = saved.get("roster_state", "DRAFT" if saved.get("roster") else "EMPTY")
+            st.session_state.undo_stack = saved.get("undo_stack", [])
+        else:
+            st.session_state.workspace_data = make_sample_data()
+
     st.session_state.setdefault("roster", None)
     st.session_state.setdefault("roster_month", None)
     st.session_state.setdefault("notice", "")
     st.session_state.setdefault("roster_history", [])
     st.session_state.setdefault("change_history", [])
-
+    st.session_state.setdefault("roster_state", "EMPTY")
+    st.session_state.setdefault("undo_stack", [])
 
 init_state()
 data = st.session_state.workspace_data
+
+
+def persist_and_rerun():
+    save_workspace({
+        "workspace_data": st.session_state.workspace_data,
+        "roster": st.session_state.roster,
+        "roster_month": st.session_state.roster_month,
+        "roster_history": st.session_state.roster_history,
+        "change_history": st.session_state.change_history,
+        "roster_state": st.session_state.roster_state,
+        "undo_stack": st.session_state.undo_stack,
+    })
+    st.rerun()
+
+
 page = st.sidebar.radio("WORKSPACE", ["Overview", "Roster", "People & operations", "Coverage & conflicts"], label_visibility="visible")
 st.sidebar.markdown("---")
 st.sidebar.markdown("**ROSTERFLOW**  ·  Workforce planning")
@@ -50,7 +125,7 @@ if st.session_state.roster_history:
     st.sidebar.markdown("---")
     st.sidebar.markdown("**RECENT ROSTERS**")
     for item in reversed(st.session_state.roster_history[-3:]):
-        st.sidebar.caption(f'{item["month"]} · {item["mode"]}')
+        st.sidebar.caption(f'{item.get("month", "Roster")} · {item.get("status", item.get("mode", "Saved"))}')
 if st.session_state.change_history:
     st.sidebar.markdown("**RECENT CHANGES**")
     for item in reversed(st.session_state.change_history[-3:]):
@@ -116,8 +191,10 @@ elif page == "Roster":
             st.session_state.roster_mode=generation_mode
             st.session_state.roster_month=(int(selected_year),month_num)
             label=f"{selected_month} {int(selected_year)}"
-            st.session_state.roster_history=[x for x in st.session_state.roster_history if x["month"]!=label]
-            st.session_state.roster_history.append({"month":label,"mode":generation_mode})
+            st.session_state.roster_state="DRAFT"
+            st.session_state.roster_history.append(make_history_entry(
+                st.session_state.roster_history, st.session_state.roster, label, "DRAFT",
+                "scheduler", f"Generated using {generation_mode} mode", roster_summary(data, st.session_state.roster)["coverage_percent"]))
             if validation["issues"]:
                 st.warning(f'Roster generated with {len(validation["issues"])} validation finding(s). Review conflicts before publishing.')
             else:
@@ -130,6 +207,31 @@ elif page == "Roster":
             validation=validate_roster(data,roster)
             s=roster_summary(data,roster)
             a,b,c=st.columns(3); a.metric("Assigned shifts",s["assignments"]); b.metric("Coverage requirements met",f'{s["covered"]:,}'); c.metric("Coverage gaps",s["gaps"])
+            validation=validate_roster(data, roster)
+            state_col, review_col, publish_col = st.columns([1, 1, 1])
+            state_col.markdown(f"**Roster state: {st.session_state.roster_state}**")
+            if st.session_state.roster_state == "PUBLISHED":
+                state_col.caption("This version is published. Any subsequent edit returns it to Draft.")
+            if review_col.button("Validate and move to Review", disabled=st.session_state.roster_state == "PUBLISHED", key="review_roster"):
+                st.session_state.roster_state = "REVIEW"
+                st.session_state.roster_history.append(make_history_entry(
+                    st.session_state.roster_history, roster, f"{calendar.month_name[m]} {y}", "REVIEW",
+                    "user", "Validated for review", s["coverage_percent"]))
+                persist_and_rerun()
+            critical = [issue for issue in validation["issues"] if issue.get("type") != "Preference warning"]
+            if publish_col.button("Publish roster", disabled=not can_publish(validation["issues"]) or st.session_state.roster_state != "REVIEW", key="publish_roster"):
+                st.session_state.roster_state = "PUBLISHED"
+                st.session_state.roster_history.append(make_history_entry(
+                    st.session_state.roster_history, roster, f"{calendar.month_name[m]} {y}", "PUBLISHED",
+                    "user", "Published validated roster", s["coverage_percent"]))
+                persist_and_rerun()
+            if critical and st.session_state.roster_state == "REVIEW":
+                st.warning(f"Publishing is disabled while {len(critical)} mandatory conflict(s) remain.")
+            with st.expander("Roster version history", expanded=False):
+                if st.session_state.roster_history:
+                    st.dataframe(pd.DataFrame(st.session_state.roster_history), hide_index=True, width="stretch")
+                else:
+                    st.caption("No roster versions recorded yet.")
             table=[]
             for row in roster:
                 emp=next(e for e in data["employees"] if e["id"]==row["employee_id"])
@@ -178,11 +280,52 @@ elif page == "Roster":
                         new_status=next((row for row in roster if row["employee_id"]==new_id and row["date"]==selected_row["date"] and row is not selected_row and row["status"]!="Working"),None)
                         if new_status: roster.remove(new_status)
                         st.session_state.roster=roster
+                        st.session_state.roster_state="DRAFT"
                         result=validate_roster(data,roster)
                         st.session_state.notice=f"Changed the assignee to {replacement_name}; {len(result['issues'])} roster finding(s) remain."
                         st.session_state.change_history.append(f'{datetime.now().strftime("%H:%M")} · {replacement_name} assigned to {selected_row["process"]}')
-                        st.rerun()
-            view_overview,view_company,view_pods,view_brands,view_processes,view_employees=st.tabs(["Overview","Company","Pods","Brands","Processes","Employees"])
+                        st.session_state.roster_history.append(make_history_entry(
+                            st.session_state.roster_history, roster, f"{calendar.month_name[m]} {y}", "DRAFT",
+                            "manual edit", f"Assigned {replacement_name} to {selected_row['process']}", roster_summary(data, roster)["coverage_percent"]))
+                        persist_and_rerun()
+            if st.session_state.notice:
+                st.info(st.session_state.notice)
+                st.session_state.notice = ""
+            with st.expander("Direct employee/day adjustment and undo"):
+                employee_names = {employee["name"]: employee["id"] for employee in data["employees"]}
+                day_keys = sorted({row["date"] for row in roster})
+                with st.form("direct_schedule_form"):
+                    chosen_employee = st.selectbox("Employee", sorted(employee_names), key="direct_employee")
+                    chosen_day = st.selectbox("Roster date", day_keys, key="direct_date")
+                    selected_status = st.selectbox("New status", ["WORK", "OFF", "LEAVE", "HOLIDAY", "COMP-OFF", "UNAVAILABLE"], key="direct_status")
+                    lane_options = {f"{brand['name']} · {req['process']}": (brand["id"], req["process"])
+                                    for req in data["requirements"] for brand in data["brands"] if req["brand_id"] == brand["id"]}
+                    lane_label = st.selectbox("Work assignment", list(lane_options), key="direct_lane") if selected_status == "WORK" else None
+                    direct_submit = st.form_submit_button("Apply schedule change and validate")
+                if direct_submit:
+                    status_values = {"WORK": "Working", "OFF": "Weekly Off", "LEAVE": "Leave", "HOLIDAY": "Holiday",
+                                     "COMP-OFF": "Comp-Off", "UNAVAILABLE": "Unavailable"}
+                    previous = deepcopy(roster)
+                    brand_id, process = lane_options[lane_label] if lane_label else ("", "")
+                    set_roster_status(roster, employee_names[chosen_employee], chosen_day, status_values[selected_status], brand_id, process)
+                    st.session_state.undo_stack.append(previous)
+                    st.session_state.roster = roster
+                    st.session_state.roster_state = "DRAFT"
+                    impact = validate_roster(data, roster)
+                    st.session_state.notice = f"Saved {chosen_employee}'s {selected_status} status for {chosen_day}. Validation found {len(impact['issues'])} issue(s)."
+                    st.session_state.change_history.append(f"{datetime.now().strftime('%H:%M')} · {chosen_employee} set to {selected_status} on {chosen_day}")
+                    st.session_state.roster_history.append(make_history_entry(
+                        st.session_state.roster_history, roster, f"{calendar.month_name[m]} {y}", "DRAFT", "manual edit",
+                        f"{chosen_employee}: {selected_status} on {chosen_day}", roster_summary(data, roster)["coverage_percent"]))
+                    persist_and_rerun()
+                if st.session_state.undo_stack and st.button("Undo latest schedule change", key="undo_schedule"):
+                    st.session_state.roster = undo_roster_change(st.session_state.undo_stack)
+                    st.session_state.roster_state = "DRAFT"
+                    impact = validate_roster(data, st.session_state.roster)
+                    st.session_state.notice = f"Latest schedule change undone. Validation found {len(impact['issues'])} issue(s)."
+                    st.session_state.change_history.append(f"{datetime.now().strftime('%H:%M')} · schedule change undone")
+                    persist_and_rerun()
+            view_overview,view_grid,view_company,view_pods,view_brands,view_processes,view_employees=st.tabs(["Overview","Monthly employee grid","Company","Pods","Brands","Processes","Employees"])
             with view_overview:
                 st.markdown("#### Brand coverage heatmap")
                 gap_keys={(i.get("date"),i.get("brand"),i.get("process")) for i in validation["issues"] if i["type"]=="Coverage gap"}
@@ -205,6 +348,11 @@ elif page == "Roster":
                     return "background-color: #fde8e7; color: #a13e3e; font-weight: 600"
                 st.dataframe(heat_df.style.map(coverage_cell).format("{:.0f}%",na_rep="—"),width="stretch")
                 st.caption("Coverage by brand and weekday across the selected month. Blank cells mean no configured operations.")
+            with view_grid:
+                st.markdown("#### Employee schedule by day")
+                grid = employee_month_grid(data, roster, y, m, validation["issues"])
+                st.dataframe(pd.DataFrame(grid), hide_index=True, width="stretch", height=560)
+                st.caption("WORK, OFF, LEAVE, HOLIDAY, COMP-OFF, UNAVAILABLE, and CONFLICT show each employee's daily status.")
                 if validation["issues"]: st.warning(f'{len(validation["issues"])} validation finding(s) need attention.')
                 else: st.success("All configured requirements are covered.")
             with view_company:
@@ -240,7 +388,7 @@ elif page == "Roster":
                     relevant=[i for i in issues if i.get("date")==selected_day.isoformat()]
                     st.session_state.notice=f"Unavailable date recorded for {selected_employee}. The existing plan was checked; {len(relevant)} issue(s) need review on {selected_day.isoformat()}."
                     st.session_state.change_history.append(f'{datetime.now().strftime("%H:%M")} · {selected_employee} unavailable')
-                    st.rerun()
+                    persist_and_rerun()
                 if st.session_state.notice:
                     st.success(st.session_state.notice)
                     impact=[i for i in validate_roster(data,st.session_state.roster)["issues"] if i.get("date")==selected_day.isoformat()]
@@ -266,13 +414,18 @@ elif page == "Roster":
                                         "brand_id":next(b["id"] for b in data["brands"] if b["name"]==chosen_gap["brand"]),
                                         "process":chosen_gap["process"],"status":"Working"})
                                 remaining=validate_roster(data,st.session_state.roster)["issues"]
+                                st.session_state.roster_state="DRAFT"
                                 st.session_state.notice="Backup assigned. Coverage restored." if not any(x.get("date")==selected_day.isoformat() for x in remaining) else "Backup assigned; review the remaining validation findings."
                                 st.session_state.change_history.append(f'{datetime.now().strftime("%H:%M")} · {candidate} assigned')
-                                st.rerun()
+                                st.session_state.roster_history.append(make_history_entry(
+                                    st.session_state.roster_history, st.session_state.roster, f"{calendar.month_name[m]} {y}", "DRAFT",
+                                    "backup assignment", f"Assigned {candidate} to resolve {chosen_gap['brand']} / {chosen_gap['process']}",
+                                    roster_summary(data, st.session_state.roster)["coverage_percent"]))
+                                persist_and_rerun()
                     if st.button("Regenerate roster with current availability",key="regen_after_change"):
                         st.session_state.roster=build_roster(data,y,m)
                         st.session_state.notice="Roster regenerated with the updated availability."
-                        st.rerun()
+                        persist_and_rerun()
             if st.session_state.notice and roster is None: st.success(st.session_state.notice)
 
 elif page == "People & operations":
@@ -510,6 +663,7 @@ elif page == "People & operations":
             if leave_item not in data[bucket]: data[bucket].append(leave_item)
             if add_holiday and holiday_date.isoformat() not in data["holidays"]: data["holidays"].append(holiday_date.isoformat())
             if st.session_state.roster is not None:
+                st.session_state.roster_state="DRAFT"
                 checks=validate_roster(data,st.session_state.roster)["issues"]
                 affected=[issue for issue in checks if issue.get("date")==leave_date.isoformat()]
                 st.success(f"Saved {availability_type.lower()}. The current roster was revalidated: {len(affected)} finding(s) on {leave_date.isoformat()}.")
@@ -526,7 +680,16 @@ else:
         if not result["issues"]: st.success("No conflicts found. Configured process coverage is met for every scheduled operating day.")
         else:
             st.warning(f'{len(result["issues"])} coverage or scheduling issue(s) need attention.')
-            st.dataframe(pd.DataFrame(result["issues"]),hide_index=True,width="stretch")
+            issue_rows=[]
+            for issue in classify_issues(result["issues"]):
+                issue_rows.append({"Severity":issue["severity"],"Type":issue.get("type"),"Date":issue.get("date", issue.get("week", "")),
+                                   "Brand":issue.get("brand", "—"),"Process":issue.get("process", "—"),
+                                   "Required":issue.get("required", "—"),"Available":issue.get("available", issue.get("assigned", "—")),
+                                   "Assigned":issue.get("assigned", "—"),"Shortage":issue.get("shortage", "—"),
+                                   "Employee":issue.get("employee", issue.get("affected_employee", "—")),
+                                   "Cause":issue.get("reason", issue.get("detail", "")),
+                                   "Suggested resolution":", ".join(issue.get("backup_candidates", [])) or "Review staffing or eligibility"})
+            st.dataframe(pd.DataFrame(issue_rows),hide_index=True,width="stretch")
         st.markdown("#### Recovery suggestions")
         if result["issues"]:
             for issue in result["issues"][:12]:
@@ -534,3 +697,15 @@ else:
                     suggestions=issue.get("backup_candidates",[])
                     st.markdown(f'<div class="callout bad"><b>{issue["brand"]} · {issue["process"]} · {issue["date"]}</b><br>Required {issue["required"]}, assigned {issue["assigned"]}. '+("Available backup: "+", ".join(suggestions) if suggestions else "No eligible backup is currently available.")+"</div>",unsafe_allow_html=True)
         else: st.caption("When a coverage gap exists, eligible employees with matching skills, availability, and no conflicting assignment are suggested.")
+
+save_workspace(
+    {
+        "workspace_data": st.session_state.workspace_data,
+        "roster": st.session_state.roster,
+        "roster_month": st.session_state.roster_month,
+        "roster_history": st.session_state.roster_history,
+        "change_history": st.session_state.change_history,
+        "roster_state": st.session_state.roster_state,
+        "undo_stack": st.session_state.undo_stack,
+    }
+)

@@ -142,6 +142,8 @@ class RosterEngineTests(unittest.TestCase):
                 and issue["process"] == working["process"]]
         self.assertEqual(len(gaps), 1)
         self.assertTrue(gaps[0]["backup_candidates"])
+        self.assertGreaterEqual(gaps[0]["available"], gaps[0]["assigned"] + len(gaps[0]["backup_candidates"]))
+        self.assertTrue(gaps[0]["affected_employee"])
 
     def test_assigning_suggested_backup_restores_coverage(self):
         roster = build_roster(self.data, 2026, 11)

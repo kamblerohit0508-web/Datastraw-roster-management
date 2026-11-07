@@ -25,11 +25,13 @@ Operations teams need to meet different coverage targets across brands and proce
 | UI | Streamlit in `app.py` |
 | Sample operating model | `make_sample_data()` in `roster_engine.py` |
 | Scheduling and validation | Pure Python functions in `roster_engine.py` |
-| Session state | Streamlit Session State; edits are held for the current session only |
-| Tests | `unittest` cases in `tests/test_roster_engine.py` |
+| Persistence | SQLite JSON snapshot in `data/rosterflow.db`, loaded at startup and saved after each Streamlit run |
+| Workflow helpers | Lifecycle, employee calendar, conflict severity, and change helpers in `roster_workflow.py` |
+| Session state | Streamlit Session State for active UI values; durable app data is saved in SQLite |
+| Tests | `unittest` cases in `tests/` |
 | Dependencies | `requirements.txt` |
 
-There is no database, login system, API key, or external service in this prototype. No information is persisted after the session or process ends.
+No login system, API key, or external service is required. SQLite is appropriate for local assessment use. The local database is excluded from Git. For public deployment, use persistent storage supported by the host or migrate to a managed database; a local SQLite file on ephemeral hosting is not durable.
 
 ## Data model
 
@@ -52,7 +54,13 @@ The validator independently checks the roster. Invalid rows do not count toward 
 
 ## Conflict handling
 
-The assessment demo starts with a valid monthly roster. Mark a scheduled employee unavailable on a working date. The existing row becomes invalid, the coverage display falls (for example, 1/2), and the validation center reports the coverage gap. The app suggests a person already eligible for that lane who is available, not already assigned that day, and still within the weekly limit. Assigning that backup triggers validation again.
+The assessment demo starts with a valid monthly roster. Mark a scheduled employee unavailable on a working date. The existing row becomes invalid, coverage falls below the requirement, and the validation center reports the gap with severity, cause, headcount, and backup candidates. Assigning a backup triggers validation again.
+
+## Roster workflow, editing, and history
+
+Generated rosters start as **DRAFT**. The user can validate and move a roster to **REVIEW**. Publishing is enabled only from Review and only when mandatory validation conflicts are resolved; soft preference warnings do not block it. Generation, review, publication, and direct schedule edits create dated history entries with a version number, source, summary, status, and coverage percentage.
+
+The roster page includes an employee-by-day monthly grid with WORK, OFF, LEAVE, HOLIDAY, COMP-OFF, UNAVAILABLE, and CONFLICT labels. Direct employee/day status edits revalidate immediately and return the roster to Draft. The latest direct schedule edit can be undone; the restored roster is validated again. Existing assignee adjustment and backup recovery controls remain available.
 
 ## AI usage
 
@@ -78,7 +86,17 @@ The app does not read environment variables. `.env.example` documents that no ke
 
 ## Deployment notes
 
-The app can be packaged as a Streamlit application with `app.py` as its entry point and `requirements.txt` for dependencies. It does not hardcode a local file path or require a localhost URL to run after deployment. However, this version is **not production-ready**: it has no persistent database, user authentication, access control, audit log, approval/publish process, or backup/restore. Session State is temporary and must be replaced with persistent storage before operational use. No repository or deployment configuration is included yet.
+Start the app with `python -m streamlit run app.py`; install dependencies from `requirements.txt`. No API keys or environment variables are required for the assessment prototype. SQLite stores state in `data/rosterflow.db`, and `.gitignore` excludes the database directory and `*.db` files. For a host with an ephemeral filesystem, configure a persistent volume or replace local SQLite with a managed database before relying on saved state. The app has no authentication or role-based access, so use fictional assessment data for a public demo and do not treat this prototype as a production workforce system.
+
+### Demo workflow
+
+1. Open Overview and verify the sample counts.
+2. Select a month in Roster and generate a roster.
+3. Review the Monthly employee grid and coverage views.
+4. Use the recovery controls to mark an employee unavailable, inspect the gap and backup suggestions, assign a backup, and revalidate.
+5. Make a direct employee/day change; inspect the validation result and undo it.
+6. Restart Streamlit and confirm the saved workspace and roster are restored.
+7. Validate and move the roster to Review, then publish it after mandatory conflicts are resolved. Inspect version history.
 
 ## Assessment questions
 
@@ -89,16 +107,16 @@ The app can be packaged as a Streamlit application with `app.py` as its entry po
 5. **How are conflicting requirements or insufficient staffing handled?** Overlaps and constraint violations are invalidated for coverage counting; any remaining shortage is shown with its affected lane, date, reason, and feasible backups where available.
 6. **Which parts are automated and which remain human-controlled? Why?** Generation, hard-constraint validation, coverage reporting, and backup eligibility are automated. An operations manager chooses whether to change an assignment or accept an unresolved gap; the app does not silently invent staff.
 7. **What would change if the company doubled in size?** Keep the domain model and validation contracts, move session data to a persistent database, add indexed queries and role-based access, and benchmark the scheduler before introducing a solver.
-8. **What would improve with one more week?** Persistent database-backed CRUD, richer shift/time-window and rest rules, undoable overrides, approval/publish workflow, fairness metrics, accessibility/responsive polish, and a broader end-to-end test suite.
+8. **What would improve with one more week?** Replace the local snapshot with deployment-backed storage, add authentication and access control, provide complete audit/restore controls, support time-window and rest rules, and run a hosted end-to-end walkthrough.
 
 ## Limitations and future work
 
-- Changes live in the current Streamlit session and are lost on restart.
+- SQLite persistence is a single local JSON snapshot and is suitable for the local assessment prototype, not concurrent production use.
 - A shift is one daily lane assignment; start/end time, minimum rest, split shifts, and hour totals are not modelled.
 - Weekly offs repeat on one weekday; the cap uses ISO weeks.
-- Employee CRUD and brand/process lane management are present, but pod removal, process renaming, and full audit history are not.
-- The manual editor changes an assignee on an existing lane; it is not a full spreadsheet cell editor.
-- Export is CSV only. No screenshots, sample credentials, live URL, public repository, or demo recording are included.
+- Pod removal, process renaming, and complete audit/restore history are not implemented.
+- Direct schedule edits support daily statuses and validation; they do not model shift times, split shifts, or working hours.
+- Export is CSV only. Deployment has not been configured or verified in this repository.
 - All directory data is synthetic and should not be represented as Datastraw employee or client data.
 
 See [ASSESSMENT_AUDIT.md](ASSESSMENT_AUDIT.md) for requirement-by-requirement status and evidence.
