@@ -70,7 +70,13 @@ The roster page includes an employee-by-day monthly grid with WORK, OFF, LEAVE, 
 
 ## AI usage
 
-No AI service is used. Roster correctness, eligibility, validation, and backup selection are deterministic. A future version could use AI to explain a conflict in plain language, but any such explanation would remain advisory.
+AI tools were used as development assistance during the project for tasks such as brainstorming, code review, debugging support, documentation, and improving the clarity of implementation decisions.
+
+The application's core scheduling and validation logic does **not** depend on an external AI model or AI API. Roster generation, employee eligibility, coverage validation, conflict detection, backup selection, and publishing rules are implemented using deterministic Python logic.
+
+This separation was intentional: AI was used as a development productivity tool, while the application's operational decisions remain deterministic, testable, and explainable.
+
+A future enhancement could introduce AI-assisted features such as natural-language conflict explanations, roster recommendations, or an assistant for operations users. Such features would be advisory and would not replace the application's rule-based validation.
 
 ## Setup
 
@@ -102,7 +108,7 @@ The app is deployed at [datastraw-roster-management-mhwedc7vwxkcvfxgsxmjsw.strea
 4. In **Advanced settings**, select Python 3.13. No secrets or environment variables need to be entered.
 5. Deploy and review the app logs if startup reports an error.
 
-The public app was smoke-tested: the dashboard, roster generation, employee-by-day grid, coverage/conflict view, manual schedule edit and undo, Review/Publish flow, roster history, and saved state after a page reload were checked. A page reload does not verify persistence across a hosting restart or redeployment. Community Cloud does **not guarantee persistence of local file storage**; the hosted SQLite database is prototype storage, not production-grade durable storage. If production-grade persistence is required, migrate the storage layer to a hosted database such as PostgreSQL. There is no authentication or role-based access, so keep the public demo limited to fictional sample data.
+- [ ] Final hosted browser walkthrough independently verified: the dashboard, roster generation, employee-by-day grid, coverage/conflict view, manual schedule edit and undo, Review/Publish flow, roster history, and saved state after a page reload were checked. A page reload does not verify persistence across a hosting restart or redeployment. Community Cloud does **not guarantee persistence of local file storage**; the hosted SQLite database is prototype storage, not production-grade durable storage. If production-grade persistence is required, migrate the storage layer to a hosted database such as PostgreSQL. There is no authentication or role-based access, so keep the public demo limited to fictional sample data.
 
 No additional Python or system packages are required. The app has no static assets, absolute local paths, or platform-specific paths in runtime code. `.streamlit/config.toml` contains appearance settings only.
 
@@ -124,7 +130,7 @@ No additional Python or system packages are required. The app has no static asse
 - [x] `.env.example` and `.gitignore` reviewed
 - [x] No secrets or local database are tracked
 - [x] Tests pass locally (19/19)
-- [x] Public app smoke-tested for the core workflow
+- [x] Final hosted browser walkthrough independently verified
 - [x] Hosted SQLite persistence limitation documented; restart/redeployment durability is not verified
 - [ ] 3–5 minute demo recorded
 - [ ] LinkedIn URL ready
